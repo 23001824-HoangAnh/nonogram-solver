@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nonogram Solver – Giải puzzle đến 50x50</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Style cho canvas (dùng cho grid lớn >20) */
+        canvas {
+            display: block;
+            margin: 10px auto;
+            border: 2px solid #555;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            max-width: 100%;
+            height: auto;
+        }
+        /* Đảm bảo solution display có thể cuộn ngang nếu cần */
+        #solutionDisplay {
+            overflow-x: auto;
+            padding: 10px 0;
+        }
+        /* Style cho grid table nhỏ (≤20) */
+        .grid-table {
+            border-collapse: collapse;
+            margin: 0 auto;
+        }
+        .grid-cell {
+            width: 26px;
+            height: 26px;
+            border: 1px solid #aaa;
+            text-align: center;
+            vertical-align: middle;
+        }
+        .grid-cell.filled {
+            background-color: #1a1a2e;
+        }
+        .grid-cell.empty {
+            background-color: #f0f0f0;
+        }
+        .corner-cell, .col-clue-cell, .row-clue-cell {
+            background: #f9f9f9;
+            font-size: 13px;
+            font-weight: bold;
+            padding: 2px 4px;
+            text-align: center;
+            border: 1px solid #ddd;
+        }
+        .empty-clue {
+            background: #fff;
+            border: 1px solid #eee;
+        }
+        /* Loading spinner */
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 0.8s linear infinite;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        /* Status messages */
+        .status-message {
+            padding: 10px 16px;
+            border-radius: 6px;
+            margin: 10px 0;
+            font-size: 15px;
+            font-weight: 500;
+            text-align: center;
+        }
+        .status-loading { background: #e3f2fd; color: #1565c0; }
+        .status-success { background: #e8f5e9; color: #2e7d32; }
+        .status-error   { background: #ffebee; color: #c62828; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧩 Nonogram Solver <small style="font-size:0.6em;color:#888;">(2→50)</small></h1>
+        
+        <div class="input-section">
+            <div class="size-input">
+                <label for="gridSize">Kích thước (n x n):</label>
+                <input type="number" id="gridSize" min="2" max="50" value="5">
+                <button class="btn btn-primary" id="createBoardBtn">Tạo bảng nhập</button>
+                <button class="btn btn-clear" id="clearAllBtn">Xóa tất cả</button>
+                <button class="btn btn-primary" id="loadExampleBtn">📝 Load 50×50 Example</button>
+                <button class="btn btn-primary" id="load25ExampleBtn">📝 Load 25×25 Example</button>
+            </div>
+
+            <div class="clues-input" id="cluesContainer">
+                <div class="clue-section">
+                    <h3><span class="clue-icon">↔️</span> Row Clues (Dòng)</h3>
+                    <p class="hint">Nhập số cách nhau bởi dấu phẩy (VD: 2,1)</p>
+                    <div id="rowCluesContainer"></div>
+                </div>
+                
+                <div class="clue-section">
+                    <h3><span class="clue-icon">↕️</span> Column Clues (Cột)</h3>
+                    <p class="hint">Nhập số cách nhau bởi dấu phẩy (VD: 3)</p>
+                    <div id="colCluesContainer"></div>
+                </div>
+            </div>
+        </div>
+
+        <div style="text-align: center; margin: 20px 0;">
+            <button class="btn btn-solve" id="solveBtn">
+                <span id="solveBtnText">🔍 Giải Puzzle</span>
+            </button>
+        </div>
+
+        <div class="output-section" id="outputSection">
+            <div id="statusMessage"></div>
+            <div id="solutionDisplay"></div>
+        </div>
+    </div>
+
+    <!-- Các script theo thứ tự bắt buộc -->
+    <script src="solver.js"></script>
+    <script src="ui.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
