@@ -151,8 +151,8 @@ class UIHandler {
     /**
      * Giải puzzle - chiến lược 3 lớp:
      * 1. Chạy logic reduction để lấy known
-     * 2. Gọi server ILP với known (nếu có)
-     * 3. Fallback JS solver với heuristic
+     * 2. Gọi server ILP với known (nếu có), với timeout riêng
+     * 3. Fallback JS solver với heuristic (chỉ cho puzzle ≤ 20)
      */
     async solvePuzzle() {
         const cluesData = this.getCluesFromInputs();
@@ -167,15 +167,14 @@ class UIHandler {
 
         this.showLoading();
 
-        // Bước 1: Chạy logic reduction để có known grid
+        // ── Bước 1: Logic reduction ──────────────────────────────────────────
         let known = null;
         let reductionInfo = null;
         try {
             const emptyKnown = Array.from({ length: size }, () => new Array(size).fill(-1));
             reductionInfo = NonogramSolver.reduceGridWithLogic(emptyKnown, rowClues, colClues);
             known = reductionInfo.known;
-            
-            // Nếu logic reduction đã giải được hoàn toàn
+
             if (reductionInfo.unknownCnt === 0) {
                 const solution = known.map(row => row.map(c => c === -1 ? 0 : c));
                 this.showSuccess('✅ Đã giải hoàn toàn bằng logic!');
@@ -184,64 +183,93 @@ class UIHandler {
             }
         } catch (e) {
             console.warn('Logic reduction gặp lỗi:', e);
-            // Tiếp tục với known = null
         }
 
-        // Bước 2: Thử gọi server ILP với known
+        // ── Bước 2: Server ILP ───────────────────────────────────────────────
+        // Dùng AbortController để có timeout độc lập với server timeout.
+        // Puzzle 50×50 có thể mất tới ~90s; ta cho phép tối đa 130s.
+        const SERVER_TIMEOUT_MS = 130_000;
+        const abort = new AbortController();
+        const timeoutId = setTimeout(() => abort.abort(), SERVER_TIMEOUT_MS);
+
+        let serverAttempted = false;
         try {
             const payload = { rowClues, colClues };
-            if (known) {
-                payload.known = known;
-            }
-            
+            if (known) payload.known = known;
+
+            serverAttempted = true;
             const response = await fetch('http://127.0.0.1:5000/solve', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(payload),
+                signal: abort.signal
             });
-            
+
+            clearTimeout(timeoutId);
+
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.message || `Server lỗi (${response.status})`);
+                throw new Error(errorData.message || `Server lỗi HTTP ${response.status}`);
             }
-            
+
             const result = await response.json();
             if (result.status === 'solved') {
-                const remainingCells = reductionInfo ? reductionInfo.unknownCnt : '?';
-                this.showSuccess(`✅ Đã tìm thấy lời giải (Server ILP - còn ${remainingCells} ô chưa biết)!`);
+                const remaining = reductionInfo ? reductionInfo.unknownCnt : '?';
+                this.showSuccess(`✅ Đã tìm thấy lời giải (Server ILP – còn ${remaining} ô chưa biết)!`);
                 this.displaySolution(result.grid, rowClues, colClues);
                 return;
             } else if (result.status === 'impossible') {
                 this.showError('❌ Puzzle không có lời giải.');
                 return;
             } else {
-                this.showError('❌ Server không thể giải puzzle này.');
+                // Server trả về lỗi logic (clue mismatch, v.v.)
+                const msg = result.message || 'Server không thể giải puzzle này.';
+                this.showError(`❌ ${msg}`);
                 return;
             }
         } catch (e) {
-            console.warn('Server ILP không khả dụng:', e.message);
-            
-            // Nếu server lỗi nhưng puzzle nhỏ, thử JS solver
-            if (size <= 20) {
-                console.log('Thử giải bằng JS solver...');
-            } else {
-                // Puzzle lớn - thông báo cần server
-                this.showError('❌ Server không khả dụng. Puzzle lớn hơn 20x20 cần server ILP để giải.');
+            clearTimeout(timeoutId);
+            console.warn('Server ILP:', e.message);
+
+            if (!serverAttempted || e.name === 'TypeError') {
+                // TypeError = không kết nối được (server chưa chạy / CORS / network)
+                if (size > 20) {
+                    this.showError(
+                        '❌ Không kết nối được server ILP. ' +
+                        'Hãy chạy <code>python server.py</code> rồi thử lại. ' +
+                        'Puzzle lớn hơn 20×20 cần server để giải.'
+                    );
+                    return;
+                }
+                // size <= 20: tiếp tục xuống fallback JS
+            } else if (e.name === 'AbortError') {
+                // Timeout phía client kích hoạt
+                this.showError(
+                    `❌ Quá thời gian chờ (${SERVER_TIMEOUT_MS / 1000}s). ` +
+                    'Server vẫn đang chạy nhưng puzzle quá phức tạp. ' +
+                    'Hãy thử puzzle đơn giản hơn hoặc tăng timeout server.'
+                );
                 return;
+            } else {
+                // Lỗi HTTP hoặc lỗi server khác
+                if (size > 20) {
+                    this.showError(`❌ Server lỗi: ${e.message}`);
+                    return;
+                }
+                // size <= 20: tiếp tục xuống fallback JS
             }
         }
 
-        // Bước 3: Fallback JS solver (chỉ cho puzzle ≤ 20)
+        // ── Bước 3: Fallback JS solver (chỉ cho puzzle ≤ 20) ────────────────
         if (size <= 20) {
-            // Sử dụng setTimeout để không block UI
             setTimeout(() => {
                 try {
                     const start = performance.now();
                     const solution = NonogramSolver.solve(rowClues, colClues, {
-                        forceBacktrack: true  // ép dùng backtracking cho puzzle nhỏ
+                        forceBacktrack: true
                     });
                     const end = performance.now();
-                    
+
                     if (solution && !solution.suggestServer) {
                         this.showSuccess(`✅ Đã tìm thấy lời giải (JS solver, ${(end-start).toFixed(0)}ms)`);
                         this.displaySolution(solution, rowClues, colClues);
