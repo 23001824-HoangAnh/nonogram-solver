@@ -1,30 +1,79 @@
 class NonogramSolver {
     /* ================================================================
-       PATTERN COUNTING (DP) – không sinh pattern để tiết kiệm thời gian
+       PATTERN COUNTING (DP) – Đếm chính xác số pattern hợp lệ
        ================================================================ */
-    static countPatternsDP(length, clues) {
-        if (!clues || clues.length === 0) return 1n;
+    static countPatternsDP(length, clues, known = null) {
+        if (!clues || clues.length === 0) {
+            // Nếu không có manh mối, cách duy nhất là toàn số 0.
+            // Cần kiểm tra xem có ô nào bị ép là 1 trong mảng known không.
+            if (known && known.includes(1)) return 0n;
+            return 1n;
+        }
+
+        // Nếu không truyền known (chưa biết gì), mặc định là toàn -1
+        if (!known) {
+            known = new Array(length).fill(-1);
+        }
+
         const K = clues.length;
-        // dp[i][k] = số cách cho chiều dài i (từ 0 đến i) và đã dùng k blocks đầu tiên
-        const dp = Array.from({length: length+1}, () => new Array(K+1).fill(0n));
-        dp[0][0] = 1n;
-        for (let i = 0; i <= length; i++) {
+        
+        // dp[i][k] = Số cách hợp lệ để xếp k khối đầu tiên vào i ô đầu tiên của hàng.
+        // i chạy từ 0 đến length, k chạy từ 0 đến K.
+        const dp = Array.from({ length: length + 1 }, () => new Array(K + 1).fill(0n));
+        
+        // Base case: 0 ô, 0 khối -> có đúng 1 cách (không đặt gì cả)
+        dp[0][0] = 1n; 
+
+        for (let i = 1; i <= length; i++) {
+            const knownIdx = i - 1; // Chỉ số thực tế đang xét trong mảng known
+            
             for (let k = 0; k <= K; k++) {
-                if (dp[i][k] === 0n) continue;
-                // Đặt ô trống
-                if (i < length) dp[i+1][k] += dp[i][k];
-                // Đặt block nếu còn block và đủ chỗ
-                if (k < K && i + clues[k] <= length) {
-                    // kiểm tra nếu đây không phải block đầu tiên thì cần khoảng trắng trước
-                    // nhưng DP này chỉ đếm cách xếp mà không quan tâm thứ tự khối, 
-                    // cần điều chỉnh để đảm bảo khoảng cách. Ta dùng DP chặt chẽ hơn.
+                let ways = 0n;
+
+                // TRƯỜNG HỢP 1: Quyết định đặt ô trống (0) tại vị trí i-1
+                // Chỉ hợp lệ nếu ô này không bị xác định từ trước là 1
+                if (known[knownIdx] !== 1) {
+                    ways += dp[i - 1][k];
                 }
+
+                // TRƯỜNG HỢP 2: Quyết định đặt khối thứ k sao cho nó KẾT THÚC tại vị trí i-1
+                if (k > 0) {
+                    const L = clues[k - 1]; // Độ dài của khối hiện tại
+                    
+                    if (i >= L) {
+                        // Kiểm tra xem khoảng không gian độ dài L này có hợp lệ không
+                        // (Không được chứa ô nào đã được xác định là 0)
+                        let canPlaceBlock = true;
+                        for (let j = 0; j < L; j++) {
+                            if (known[knownIdx - j] === 0) {
+                                canPlaceBlock = false;
+                                break;
+                            }
+                        }
+
+                        if (canPlaceBlock) {
+                            if (k === 1) {
+                                // Nếu là khối đầu tiên, ta có thể đặt sát lề hoặc bất cứ đâu
+                                // Các ô đằng trước nó bắt buộc phải là 0 (đã được bao hàm ở dp[i-L][0])
+                                ways += dp[i - L][0];
+                            } else {
+                                // Nếu là khối thứ 2 trở đi, BẮT BUỘC phải có ít nhất 1 ô trống (0) ngăn cách trước nó.
+                                // Tức là ô tại vị trí (knownIdx - L) không được phép là 1.
+                                if (i > L && known[knownIdx - L] !== 1) {
+                                    // Chuyển trạng thái từ dp[i - L - 1][k - 1] (đã tính cả khoảng trắng)
+                                    ways += dp[i - L - 1][k - 1];
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                dp[i][k] = ways;
             }
         }
-        // Cần DP khác chính xác hơn, nhưng tạm thời dùng công thức tổ hợp.
-        // Vì đây là heuristic, ta dùng phép tính xấp xỉ hoặc giữ nguyên MRV dựa trên số ô chưa biết.
-        // Để tránh phức tạp, ta không dùng DP đếm mà dùng heuristic đơn giản: số ô còn lại trên hàng.
-        return -1; // tạm thời
+
+        // Trả về số cách để xếp đủ K khối trong length ô
+        return dp[length][K];
     }
 
     /* ================================================================
@@ -121,21 +170,62 @@ class NonogramSolver {
         }
         // Edge logic (đơn giản)
         if (clues.length > 0) {
-            // Đầu trái
+            // ==========================================
+            // 1. XỬ LÝ ĐẦU TRÁI (Tìm "góc chết" bên trái)
+            // ==========================================
             const firstLen = clues[0];
-            let firstStart = 0;
-            while (firstStart < lineLength && cur[firstStart] === 0) firstStart++;
-            // Nếu không có ô nào có thể là 1 trước firstStart+firstLen -> những ô trước đó phải 0
-            for (let i = 0; i < firstStart; i++) {
-                if (cur[i] === -1) { cur[i] = 0; changed = true; }
+            let firstValidStart = 0;
+
+            // Quét từ trái sang phải để tìm vị trí SỚM NHẤT đặt vừa khối đầu tiên
+            while (firstValidStart <= lineLength - firstLen) {
+                let canFit = true;
+                for (let j = 0; j < firstLen; j++) {
+                    // Nếu vướng ô số 0, khoảng này quá hẹp
+                    if (cur[firstValidStart + j] === 0) {
+                        canFit = false;
+                        break;
+                    }
+                }
+                if (canFit) break; // Đã tìm thấy vị trí đặt vừa!
+                firstValidStart++;
             }
-            // Đầu phải
-            const lastLen = clues[clues.length-1];
-            let lastEnd = lineLength-1;
-            while (lastEnd >= 0 && cur[lastEnd] === 0) lastEnd--;
-            const lastStart = lastEnd - lastLen + 1;
-            for (let i = lastEnd+1; i < lineLength; i++) {
-                if (cur[i] === -1) { cur[i] = 0; changed = true; }
+
+            // Những ô nằm TRƯỚC firstValidStart chắc chắn không thể nhét vừa khối đầu.
+            // Lấp 0 vào tất cả những ô chưa biết (-1) ở khu vực này.
+            for (let i = 0; i < firstValidStart; i++) {
+                if (cur[i] === -1) { 
+                    cur[i] = 0; 
+                    changed = true; 
+                }
+            }
+
+            // ==========================================
+            // 2. XỬ LÝ ĐẦU PHẢI (Tìm "góc chết" bên phải)
+            // ==========================================
+            const lastLen = clues[clues.length - 1];
+            let lastValidEnd = lineLength - 1; // Tính theo điểm KẾT THÚC của khối cuối
+
+            // Quét từ phải sang trái để tìm vị trí MUỘN NHẤT đặt vừa khối cuối cùng
+            while (lastValidEnd >= lastLen - 1) {
+                let canFit = true;
+                for (let j = 0; j < lastLen; j++) {
+                    // Kiểm tra lùi lại lastLen ô xem có vướng số 0 nào không
+                    if (cur[lastValidEnd - j] === 0) {
+                        canFit = false;
+                        break;
+                    }
+                }
+                if (canFit) break; // Đã tìm thấy vị trí đặt vừa!
+                lastValidEnd--;
+            }
+
+            // Những ô nằm SAU lastValidEnd chắc chắn khối cuối không thể vươn tới được.
+            // Lấp 0 vào tất cả những ô chưa biết (-1) ở khu vực này.
+            for (let i = lastValidEnd + 1; i < lineLength; i++) {
+                if (cur[i] === -1) { 
+                    cur[i] = 0; 
+                    changed = true; 
+                }
             }
         }
         // Counting
@@ -204,9 +294,27 @@ class NonogramSolver {
             if (known[r].some(v => v === -1)) undeterminedRows.push(r);
         }
         // Sinh trước tất cả pattern cho từng hàng, lọc bởi known hiện tại
-        const patterns = {}; // mảng pattern cho mỗi hàng
+        // ... (Trong hàm solveWithBacktrack) ...
+        const patterns = {};
+        const patternCounts = {}; // Lưu số lượng đếm được bằng DP
         let totalPatterns = 1;
+        
         for (const r of undeterminedRows) {
+            // DÙNG DP ĐỂ TÍNH NHANH SỐ LƯỢNG PATTERN HỢP LỆ
+            const count = NonogramSolver.countPatternsDP(cols, rowClues[r], known[r]);
+            
+            if (count === 0n) return null; // Mâu thuẫn
+            
+            // Ép kiểu BigInt về Number (vì maxPatternsPerLine nhỏ, sẽ không tràn số)
+            const numCount = Number(count); 
+            patternCounts[r] = numCount;
+
+            if (numCount > maxPatternsPerLine) {
+                // Quá nhiều pattern, fallback ngay lập tức KHÔNG CẦN sinh mảng
+                return { fallback: true };
+            }
+
+            // Nếu số lượng an toàn, lúc này mới sinh mảng thật
             const allPats = NonogramSolver.generatePatterns(cols, rowClues[r]);
             const filtered = allPats.filter(p => {
                 for (let c = 0; c < cols; c++) {
@@ -214,19 +322,16 @@ class NonogramSolver {
                 }
                 return true;
             });
-            if (filtered.length === 0) return null; // mâu thuẫn
-            if (filtered.length > maxPatternsPerLine) {
-                // Quá nhiều pattern, fallback
-                return { fallback: true };
-            }
+            
             patterns[r] = filtered;
             totalPatterns *= filtered.length;
-            if (totalPatterns > 1e6) { // tránh quá nhiều
+            if (totalPatterns > 1e6) {
                 return { fallback: true };
             }
         }
-        // Sắp xếp các hàng theo MRV
-        undeterminedRows.sort((a,b) => patterns[a].length - patterns[b].length);
+        
+        // Sắp xếp các hàng theo MRV (tăng dần)
+        undeterminedRows.sort((a,b) => patternCounts[a] - patternCounts[b]);
         // Backtrack
         const grid = known.map(row => row.map(c => c === -1 ? 0 : c)); // tạm gán 0 cho ô chưa biết khi thử
         function backtrack(idx) {
@@ -250,7 +355,7 @@ class NonogramSolver {
     }
 
     /* ================================================================
-       Các hàm validate (giữ nguyên)
+       Các hàm validate 
        ================================================================ */
     static isValidPartial(grid, colClues, rowIdx) {
         const cols = grid[0].length;
